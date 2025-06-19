@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>BrainyCheeese's Game Zone</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background-color: black;
+      color: lime;
+      font-family: monospace;
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #container {
+      text-align: center;
+      white-space: pre-wrap;
+      max-width: 600px;
+      user-select: none;
+    }
+
+    .blink {
+      animation: blink 1s step-end infinite;
+    }
+
+    @keyframes blink {
+      from, to { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
+    #main-content {
+      display: none;
+    }
+
+    a {
+      color: cyan;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+
+    a:hover {
+      color: lime;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <div id="start-screen"><span class="blink">START;</span></div>
+
+    <div id="main-content">
+---------------------------------------------
+
+      BrainyCheeese’s Game Zone!
+
+      Play games here:
+
+      👉 <a href="/pong">Pong</a>
+      👉 <a href="/sledshred">Sled Shred</a>
+
+---------------------------------------------
+    </div>
+  </div>
+
+  <script>
+    setTimeout(() => {
+      document.getElementById('start-screen').style.display = 'none';
+      document.getElementById('main-content').style.display = 'block';
+    }, 3000); // 3 second delay
+  </script>
+</body>
+</html>
