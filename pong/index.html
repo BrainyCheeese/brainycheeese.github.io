@@ -3,23 +3,27 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>BrainyCheese Pong</title>
+<title>Pong</title>
 <style>
   body {
     background: #121212;
     color: #eee;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    height: 100vh;
     display: flex;
     flex-direction: column;
     align-items: center;
-    margin: 0;
-    height: 100vh;
     user-select: none;
+    overflow: hidden;
   }
   h1 {
     margin: 20px;
     color: #ffcc33;
     text-shadow: 0 0 5px #ffcc33;
+  }
+  #gameContainer {
+    position: relative;
   }
   #gameCanvas {
     background: linear-gradient(135deg, #222, #444);
@@ -37,12 +41,73 @@
     color: #aaa;
     font-size: 0.9rem;
   }
+  #overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 600px;
+    height: 400px;
+    background: rgba(18, 18, 18, 0.85);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: #ffcc33;
+    font-size: 3rem;
+    user-select: none;
+    z-index: 10;
+  }
+  #playButton {
+    background: #ffcc33;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 28px;
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #121212;
+    cursor: pointer;
+    box-shadow: 0 0 8px #ffcc33;
+    margin-bottom: 20px;
+    transition: background 0.3s ease;
+  }
+  #playButton:hover {
+    background: #e6b800;
+  }
+  #difficultySelect {
+    font-size: 1.2rem;
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    background: #333;
+    color: #ffcc33;
+  }
+  #countdown {
+    font-size: 5rem;
+    margin-top: 10px;
+    font-weight: bold;
+    letter-spacing: 0.2em;
+  }
 </style>
 </head>
 <body>
 
 <h1>BrainyCheese Pong 🏓🧀</h1>
-<canvas id="gameCanvas" width="600" height="400"></canvas>
+
+<div id="gameContainer">
+  <canvas id="gameCanvas" width="600" height="400"></canvas>
+  <div id="overlay">
+    <button id="playButton">PLAY</button>
+    <label for="difficultySelect">Difficulty:</label>
+    <select id="difficultySelect">
+      <option value="easy">Easy</option>
+      <option value="medium" selected>Medium</option>
+      <option value="hard">Hard</option>
+    </select>
+    <div id="countdown"></div>
+  </div>
+</div>
+
 <div id="scoreBoard">Player: 0 | CPU: 0</div>
 <div id="controls">
   Controls: <br />
@@ -53,25 +118,42 @@
 <script>
   const canvas = document.getElementById('gameCanvas');
   const ctx = canvas.getContext('2d');
+  const overlay = document.getElementById('overlay');
+  const playButton = document.getElementById('playButton');
+  const difficultySelect = document.getElementById('difficultySelect');
+  const countdownElem = document.getElementById('countdown');
 
   const paddleWidth = 12;
   const paddleHeight = 80;
   const ballRadius = 10;
   const playerSpeed = 6;
-  const cpuSpeed = 4;
+
+  let cpuSpeed = 4; // default medium
 
   let playerY = canvas.height / 2 - paddleHeight / 2;
   let cpuY = canvas.height / 2 - paddleHeight / 2;
   let ballX = canvas.width / 2;
   let ballY = canvas.height / 2;
-  let ballSpeedX = 5;
-  let ballSpeedY = 3;
+  let ballSpeedX = 0;
+  let ballSpeedY = 0;
 
   let playerScore = 0;
   let cpuScore = 0;
 
   let upPressed = false;
   let downPressed = false;
+
+  let gameRunning = false;
+  let countdown = 3;
+
+  function setCpuSpeed(difficulty) {
+    switch(difficulty) {
+      case 'easy': cpuSpeed = 2.5; break;
+      case 'medium': cpuSpeed = 4; break;
+      case 'hard': cpuSpeed = 6; break;
+      default: cpuSpeed = 4;
+    }
+  }
 
   function drawRect(x, y, w, h, color) {
     ctx.fillStyle = color;
@@ -97,12 +179,14 @@
   function resetBall() {
     ballX = canvas.width / 2;
     ballY = canvas.height / 2;
-    // Reverse ball direction after scoring
-    ballSpeedX = -ballSpeedX;
+    // Randomize direction and speed after countdown
+    ballSpeedX = (Math.random() > 0.5 ? 5 : -5);
     ballSpeedY = 3 * (Math.random() > 0.5 ? 1 : -1);
   }
 
   function update() {
+    if (!gameRunning) return;
+
     // Move player paddle
     if (upPressed && playerY > 0) {
       playerY -= playerSpeed;
@@ -117,31 +201,29 @@
     } else {
       cpuY -= cpuSpeed;
     }
-    // Clamp CPU paddle inside canvas
     cpuY = Math.max(Math.min(cpuY, canvas.height - paddleHeight), 0);
 
     // Move ball
     ballX += ballSpeedX;
     ballY += ballSpeedY;
 
-    // Ball collision with top/bottom
+    // Ball collision top/bottom
     if (ballY + ballRadius > canvas.height || ballY - ballRadius < 0) {
       ballSpeedY = -ballSpeedY;
     }
 
-    // Ball collision with player paddle
+    // Ball collision player paddle
     if (
       ballX - ballRadius < paddleWidth &&
       ballY > playerY &&
       ballY < playerY + paddleHeight
     ) {
       ballSpeedX = -ballSpeedX;
-      // Add a little spin based on where it hits the paddle
       let collidePoint = ballY - (playerY + paddleHeight / 2);
       ballSpeedY = collidePoint * 0.25;
     }
 
-    // Ball collision with CPU paddle
+    // Ball collision CPU paddle
     if (
       ballX + ballRadius > canvas.width - paddleWidth &&
       ballY > cpuY &&
@@ -152,15 +234,15 @@
       ballSpeedY = collidePoint * 0.25;
     }
 
-    // Check score
+    // Score check
     if (ballX - ballRadius < 0) {
       cpuScore++;
-      resetBall();
       updateScore();
+      stopGame();
     } else if (ballX + ballRadius > canvas.width) {
       playerScore++;
-      resetBall();
       updateScore();
+      stopGame();
     }
   }
 
@@ -170,16 +252,10 @@
   }
 
   function draw() {
-    // Clear canvas
     drawRect(0, 0, canvas.width, canvas.height, '#121212');
-
     drawNet();
-
-    // Draw paddles
     drawRect(0, playerY, paddleWidth, paddleHeight, '#ffcc33');
     drawRect(canvas.width - paddleWidth, cpuY, paddleWidth, paddleHeight, '#ffcc33');
-
-    // Draw ball
     drawCircle(ballX, ballY, ballRadius, '#ffcc33');
   }
 
@@ -189,15 +265,42 @@
     requestAnimationFrame(gameLoop);
   }
 
-  // Keyboard controls
+  // Countdown logic
+  async function startCountdown() {
+    countdownElem.textContent = countdown;
+    while (countdown > 0) {
+      await new Promise(r => setTimeout(r, 1000));
+      countdown--;
+      countdownElem.textContent = countdown > 0 ? countdown : 'GO!';
+    }
+    await new Promise(r => setTimeout(r, 500));
+    countdownElem.textContent = '';
+    startGame();
+  }
+
+  function startGame() {
+    gameRunning = true;
+    resetBall();
+    overlay.style.display = 'none';
+  }
+
+  function stopGame() {
+    gameRunning = false;
+    overlay.style.display = 'flex';
+    countdown = 3;
+    countdownElem.textContent = '';
+  }
+
+  // Controls
   window.addEventListener('keydown', (e) => {
+    if (!gameRunning) return;
     if (e.key === 'w' || e.key === 'W') upPressed = true;
     if (e.key === 's' || e.key === 'S') downPressed = true;
     if (e.key === 'r' || e.key === 'R') {
       playerScore = 0;
       cpuScore = 0;
       updateScore();
-      resetBall();
+      stopGame();
     }
   });
 
@@ -206,10 +309,19 @@
     if (e.key === 's' || e.key === 'S') downPressed = false;
   });
 
-  // Start the game
-  updateScore();
-  resetBall();
+  // Play button and difficulty
+  playButton.addEventListener('click', () => {
+    setCpuSpeed(difficultySelect.value);
+    startCountdown();
+  });
+
+  difficultySelect.addEventListener('change', () => {
+    setCpuSpeed(difficultySelect.value);
+  });
+
+  // Start loop
   gameLoop();
+  updateScore();
 </script>
 
 </body>
