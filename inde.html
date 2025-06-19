@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BrainyCheese Pong</title>
+<style>
+  body {
+    background: #121212;
+    color: #eee;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 0;
+    height: 100vh;
+    user-select: none;
+  }
+  h1 {
+    margin: 20px;
+    color: #ffcc33;
+    text-shadow: 0 0 5px #ffcc33;
+  }
+  #gameCanvas {
+    background: linear-gradient(135deg, #222, #444);
+    border: 3px solid #ffcc33;
+    border-radius: 12px;
+    display: block;
+    margin: 0 auto;
+  }
+  #scoreBoard {
+    margin-top: 10px;
+    font-size: 1.5rem;
+  }
+  #controls {
+    margin-top: 20px;
+    color: #aaa;
+    font-size: 0.9rem;
+  }
+</style>
+</head>
+<body>
+
+<h1>BrainyCheese Pong 🏓🧀</h1>
+<canvas id="gameCanvas" width="600" height="400"></canvas>
+<div id="scoreBoard">Player: 0 | CPU: 0</div>
+<div id="controls">
+  Controls: <br />
+  Player Paddle: W (up), S (down) <br />
+  Restart Game: R
+</div>
+
+<script>
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+
+  const paddleWidth = 12;
+  const paddleHeight = 80;
+  const ballRadius = 10;
+  const playerSpeed = 6;
+  const cpuSpeed = 4;
+
+  let playerY = canvas.height / 2 - paddleHeight / 2;
+  let cpuY = canvas.height / 2 - paddleHeight / 2;
+  let ballX = canvas.width / 2;
+  let ballY = canvas.height / 2;
+  let ballSpeedX = 5;
+  let ballSpeedY = 3;
+
+  let playerScore = 0;
+  let cpuScore = 0;
+
+  let upPressed = false;
+  let downPressed = false;
+
+  function drawRect(x, y, w, h, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, w, h);
+  }
+
+  function drawCircle(x, y, r, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawNet() {
+    const netWidth = 4;
+    const netHeight = 20;
+    ctx.fillStyle = '#ffcc33';
+    for (let i = 0; i < canvas.height; i += netHeight * 2) {
+      ctx.fillRect(canvas.width / 2 - netWidth / 2, i, netWidth, netHeight);
+    }
+  }
+
+  function resetBall() {
+    ballX = canvas.width / 2;
+    ballY = canvas.height / 2;
+    // Reverse ball direction after scoring
+    ballSpeedX = -ballSpeedX;
+    ballSpeedY = 3 * (Math.random() > 0.5 ? 1 : -1);
+  }
+
+  function update() {
+    // Move player paddle
+    if (upPressed && playerY > 0) {
+      playerY -= playerSpeed;
+    }
+    if (downPressed && playerY + paddleHeight < canvas.height) {
+      playerY += playerSpeed;
+    }
+
+    // Move CPU paddle (simple AI)
+    if (cpuY + paddleHeight / 2 < ballY) {
+      cpuY += cpuSpeed;
+    } else {
+      cpuY -= cpuSpeed;
+    }
+    // Clamp CPU paddle inside canvas
+    cpuY = Math.max(Math.min(cpuY, canvas.height - paddleHeight), 0);
+
+    // Move ball
+    ballX += ballSpeedX;
+    ballY += ballSpeedY;
+
+    // Ball collision with top/bottom
+    if (ballY + ballRadius > canvas.height || ballY - ballRadius < 0) {
+      ballSpeedY = -ballSpeedY;
+    }
+
+    // Ball collision with player paddle
+    if (
+      ballX - ballRadius < paddleWidth &&
+      ballY > playerY &&
+      ballY < playerY + paddleHeight
+    ) {
+      ballSpeedX = -ballSpeedX;
+      // Add a little spin based on where it hits the paddle
+      let collidePoint = ballY - (playerY + paddleHeight / 2);
+      ballSpeedY = collidePoint * 0.25;
+    }
+
+    // Ball collision with CPU paddle
+    if (
+      ballX + ballRadius > canvas.width - paddleWidth &&
+      ballY > cpuY &&
+      ballY < cpuY + paddleHeight
+    ) {
+      ballSpeedX = -ballSpeedX;
+      let collidePoint = ballY - (cpuY + paddleHeight / 2);
+      ballSpeedY = collidePoint * 0.25;
+    }
+
+    // Check score
+    if (ballX - ballRadius < 0) {
+      cpuScore++;
+      resetBall();
+      updateScore();
+    } else if (ballX + ballRadius > canvas.width) {
+      playerScore++;
+      resetBall();
+      updateScore();
+    }
+  }
+
+  function updateScore() {
+    document.getElementById('scoreBoard').textContent =
+      `Player: ${playerScore} | CPU: ${cpuScore}`;
+  }
+
+  function draw() {
+    // Clear canvas
+    drawRect(0, 0, canvas.width, canvas.height, '#121212');
+
+    drawNet();
+
+    // Draw paddles
+    drawRect(0, playerY, paddleWidth, paddleHeight, '#ffcc33');
+    drawRect(canvas.width - paddleWidth, cpuY, paddleWidth, paddleHeight, '#ffcc33');
+
+    // Draw ball
+    drawCircle(ballX, ballY, ballRadius, '#ffcc33');
+  }
+
+  function gameLoop() {
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+  }
+
+  // Keyboard controls
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'w' || e.key === 'W') upPressed = true;
+    if (e.key === 's' || e.key === 'S') downPressed = true;
+    if (e.key === 'r' || e.key === 'R') {
+      playerScore = 0;
+      cpuScore = 0;
+      updateScore();
+      resetBall();
+    }
+  });
+
+  window.addEventListener('keyup', (e) => {
+    if (e.key === 'w' || e.key === 'W') upPressed = false;
+    if (e.key === 's' || e.key === 'S') downPressed = false;
+  });
+
+  // Start the game
+  updateScore();
+  resetBall();
+  gameLoop();
+</script>
+
+</body>
+</html>
