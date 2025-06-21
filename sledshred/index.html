@@ -2,153 +2,591 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sled Shred X-TREME</title>
   <style>
     body {
       margin: 0;
       overflow: hidden;
-      background: linear-gradient(#a0e9ff, #ffffff);
-      font-family: 'Comic Sans MS', cursive, sans-serif;
+      background: linear-gradient(to bottom, #87CEEB, #B0E0E6, #ffffff);
+      font-family: 'Press Start 2P', cursive, sans-serif;
+      color: #333;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      -khtml-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
+      touch-action: none;
     }
     canvas {
       display: block;
     }
-    #score {
+    #gameUI {
       position: absolute;
-      top: 20px;
-      left: 20px;
-      font-size: 36px;
-      color: #333;
-      background: rgba(255,255,255,0.8);
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+      z-index: 10;
+    }
+    #score {
+      font-size: clamp(24px, 5vw, 48px);
+      color: #FFF;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.7);
       padding: 10px 20px;
-      border-radius: 10px;
-      box-shadow: 0 0 10px #aaa;
+      margin-top: 20px;
+      background: rgba(0,0,0,0.5);
+      border-radius: 15px;
+      box-shadow: 0 0 15px rgba(255,255,255,0.3);
+      pointer-events: auto;
+    }
+    #gameOverScreen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      font-size: clamp(28px, 6vw, 60px);
+      text-align: center;
+      z-index: 20;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.5s ease;
+      pointer-events: none;
+    }
+    #gameOverScreen.active {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+    }
+    #finalScore {
+      margin-bottom: 20px;
+      font-size: clamp(36px, 8vw, 72px);
+      text-shadow: 3px 3px 6px #00FFFF;
     }
     #resetBtn {
-      position: absolute;
-      top: 20px;
-      right: 20px;
-      padding: 10px 20px;
-      font-size: 20px;
-      background: #ff4444;
-      color: white;
+      padding: 15px 30px;
+      font-size: clamp(20px, 4vw, 36px);
+      background: #00FFFF;
+      color: #333;
       border: none;
-      border-radius: 8px;
+      border-radius: 10px;
       cursor: pointer;
-      box-shadow: 0 0 10px #666;
+      box-shadow: 0 5px 15px rgba(0,255,255,0.5);
+      transition: background 0.3s ease, transform 0.1s ease, box-shadow 0.3s ease;
+      pointer-events: auto;
     }
     #resetBtn:hover {
-      background: #ff2222;
+      background: #00E0E0;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(0,255,255,0.7);
     }
+
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
   </style>
 </head>
 <body>
-<div id="score">Score: 0</div>
-<button id="resetBtn">Reset</button>
+<div id="gameUI">
+  <div id="score">Score: 0</div>
+</div>
+
+<div id="gameOverScreen">
+  <div id="finalScore"></div>
+  <button id="resetBtn">Shred Again!</button>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.min.js"></script>
 <script>
-  let scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(0xe0f7fa, 10, 50);
-
-  let camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-  let renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  document.body.appendChild(renderer.domElement);
-
-  // Lighting
-  const light = new THREE.DirectionalLight(0xffffff, 1);
-  light.position.set(10, 20, 10);
-  scene.add(light);
-
-  const ambient = new THREE.AmbientLight(0x888888);
-  scene.add(ambient);
-
-  // Player (sled)
-  let sled = new THREE.Mesh(
-    new THREE.BoxGeometry(2, 1, 2),
-    new THREE.MeshLambertMaterial({ color: 0xff4444 })
-  );
-  sled.position.y = 1;
-  scene.add(sled);
-
-  // Ground with textured look
-  let groundTex = new THREE.TextureLoader().load('https://threejsfundamentals.org/threejs/resources/images/checker.png');
-  groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping;
-  groundTex.repeat.set(50, 50);
-
-  let ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(100, 100),
-    new THREE.MeshLambertMaterial({ map: groundTex })
-  );
-  ground.rotation.x = -Math.PI / 2;
-  scene.add(ground);
-
-  camera.position.set(0, 10, 15);
-  camera.lookAt(0, 0, 0);
-
+  // --- Scene Setup ---
+  let scene, camera, renderer;
+  let sled, ground;
   let trees = [];
+  let jumpSections = [];
   let score = 0;
-  let scoreEl = document.getElementById("score");
   let gameOver = false;
+  let sledSpeed = 0.5;
+  let treeSpawnRate = 0.03;
+  let lastSpawnZ = -60;
+  const trackWidth = 20;
+  const wallDepth = 2;
+  const visibleWallHeight = 10;
 
+  // Sled jump/fall parameters
+  const SLED_ON_GROUND_Y = 0.8;
+  // Adjusted jump threshold: slightly higher to make it easier to clear pits
+  const JUMP_HEIGHT_THRESHOLD = SLED_ON_GROUND_Y + 1.8; // Increased from 1.5
+  const JUMP_GRAVITY = 0.03;
+  let sledVerticalVelocity = 0;
+  let isSledJumping = false;
+  let isOverGap = false; // Flag to indicate if sled is currently over a gap
+
+  let keys = {};
+  let touchActive = false;
+  let touchDirection = 0;
+
+  let cameraShakeMagnitude = 0;
+  let cameraShakeDecay = 0.9;
+
+  const scoreEl = document.getElementById("score");
+  const gameOverScreen = document.getElementById('gameOverScreen');
+  const finalScoreEl = document.getElementById('finalScore');
+  const resetBtn = document.getElementById("resetBtn");
+
+  // --- Initialization Function ---
+  function init() {
+    scene = new THREE.Scene();
+    // Slightly increased fog distance for better overall visibility of the pits
+    scene.fog = new THREE.Fog(0xe0f7fa, 10, 70);
+
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.body.appendChild(renderer.domElement);
+
+    // --- Skybox ---
+    const skyboxGeo = new THREE.BoxGeometry(1000, 1000, 1000);
+    const skyboxMaterials = [
+      new THREE.MeshBasicMaterial({ map: new THREE.TextureLoader().load('https://threejsfundamentals.org/threejs/resources/images/cubemaps/computer-history-museum/posx.jpg'), side: THREE.BackSide }),
+      new THREE.MeshBasicMaterial({ map: new THREE.TextureLoader().load('https://threejsfundamentals.org/threejs/resources/images/cubemaps/computer-history-museum/negx.jpg'), side: THREE.BackSide }),
+      new THREE.MeshBasicMaterial({ map: new THREE.TextureLoader().load('https://threejsfundamentals.org/threejs/resources/images/cubecity/posy.jpg'), side: THREE.BackSide }),
+      new THREE.MeshBasicMaterial({ map: new THREE.TextureLoader().load('https://threejsfundamentals.org/threejs/resources/images/cubecity/negy.jpg'), side: THREE.BackSide }),
+      new THREE.MeshBasicMaterial({ map: new THREE.TextureLoader().load('https://threejsfundamentals.org/threejs/resources/images/cubemaps/computer-history-museum/posz.jpg'), side: THREE.BackSide }),
+      new THREE.MeshBasicMaterial({ map: new THREE.TextureLoader().load('https://threejsfundamentals.org/threejs/resources/images/cubemaps/computer-history-museum/negz.jpg'), side: THREE.BackSide })
+    ];
+    const skybox = new THREE.Mesh(skyboxGeo, skyboxMaterials);
+    scene.add(skybox);
+
+    // Lighting
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
+    scene.add(hemiLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    dirLight.position.set(5, 10, 8);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 1024;
+    dirLight.shadow.mapSize.height = 1024;
+    dirLight.shadow.camera.near = 0.5;
+    dirLight.shadow.camera.far = 50;
+    dirLight.shadow.camera.left = -10;
+    dirLight.shadow.camera.right = 10;
+    dirLight.shadow.camera.top = 10;
+    dirLight.shadow.camera.bottom = -10;
+    scene.add(dirLight);
+
+    // --- Player (sled) ---
+    sled = new THREE.Group();
+
+    const sledBase = new THREE.Mesh(
+      new THREE.BoxGeometry(1.5, 0.3, 2.5),
+      new THREE.MeshStandardMaterial({ color: 0xFF4500, metalness: 0.8, roughness: 0.2 })
+    );
+    sledBase.position.y = 0.5;
+    sledBase.castShadow = true;
+    sled.add(sledBase);
+
+    const sledFront = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.3, 0.3, 1.5, 8),
+        new THREE.MeshStandardMaterial({ color: 0xFF4500, metalness: 0.8, roughness: 0.2 })
+    );
+    sledFront.rotation.x = Math.PI / 2;
+    sledFront.rotation.z = Math.PI / 2;
+    sledFront.position.set(0, 0.7, -1.2);
+    sledFront.castShadow = true;
+    sled.add(sledFront);
+
+    const runnerGeo = new THREE.BoxGeometry(0.2, 0.2, 2.7);
+    const runnerMat = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.9, roughness: 0.1 });
+
+    const leftRunner = new THREE.Mesh(runnerGeo, runnerMat);
+    leftRunner.position.set(-0.6, 0.2, 0);
+    leftRunner.castShadow = true;
+    sled.add(leftRunner);
+
+    const rightRunner = new THREE.Mesh(runnerGeo, runnerMat);
+    rightRunner.position.set(0.6, 0.2, 0);
+    rightRunner.castShadow = true;
+    sled.add(rightRunner);
+
+    sled.position.y = SLED_ON_GROUND_Y;
+    scene.add(sled);
+
+
+    // Ground: Pure White
+    ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(trackWidth + wallDepth * 2 + 10, 500),
+      new THREE.MeshStandardMaterial({ color: 0xFFFFFF, roughness: 0.9 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.z = -200;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    // --- Walls ---
+    const wallMaterial = new THREE.MeshStandardMaterial({ color: 0xF0F8FF, roughness: 0.9 });
+
+    // Left Wall
+    const leftWall = new THREE.Mesh(
+      new THREE.BoxGeometry(wallDepth, visibleWallHeight, 500),
+      wallMaterial
+    );
+    leftWall.position.set(-trackWidth / 2 - wallDepth / 2, visibleWallHeight / 2, -200);
+    leftWall.receiveShadow = true;
+    leftWall.castShadow = true;
+    scene.add(leftWall);
+
+    // Right Wall
+    const rightWall = new THREE.Mesh(
+      new THREE.BoxGeometry(wallDepth, visibleWallHeight, 500),
+      wallMaterial
+    );
+    rightWall.position.set(trackWidth / 2 + wallDepth / 2, visibleWallHeight / 2, -200);
+    rightWall.receiveShadow = true;
+    rightWall.castShadow = true;
+    scene.add(rightWall);
+
+    // Camera Position
+    camera.position.set(0, 5, 8);
+    camera.lookAt(0, 1, 0);
+
+    // Particle System for Speed Effect & Snowfall
+    scene.add(snowfallParticles);
+
+    // Initial spawns to start the game with obstacles
+    for(let i = 0; i < 15; i++) {
+      if (Math.random() < 0.2 && i > 5) {
+        spawnJumpSection();
+      } else {
+        spawnTree();
+      }
+    }
+  }
+
+  // --- Tree Spawning ---
   function spawnTree() {
     let tree = new THREE.Group();
 
+    let trunkHeight = Math.random() * 1 + 1.5;
     let trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.3, 0.3, 1, 6),
+      new THREE.CylinderGeometry(0.2 + Math.random() * 0.1, 0.3 + Math.random() * 0.1, trunkHeight, 6),
       new THREE.MeshLambertMaterial({ color: 0x8B4513 })
     );
-    trunk.position.y = 0.5;
+    trunk.position.y = trunkHeight / 2;
+    trunk.castShadow = true;
 
+    let coneHeight = Math.random() * 2 + 3;
+    let coneRadius = Math.random() * 0.5 + 1.5;
     let leaves = new THREE.Mesh(
-      new THREE.ConeGeometry(1.5, 4, 8),
+      new THREE.ConeGeometry(coneRadius, coneHeight, 8),
       new THREE.MeshLambertMaterial({ color: 0x006400 })
     );
-    leaves.position.y = 3;
+    leaves.position.y = trunkHeight + coneHeight / 2 - 0.5;
+    leaves.castShadow = true;
 
     tree.add(trunk);
     tree.add(leaves);
 
-    tree.position.set((Math.random() - 0.5) * 40, 0, -60);
+    let xPos = (Math.random() - 0.5) * (trackWidth - 6);
+    let zPos = lastSpawnZ - (Math.random() * 15 + 10);
+    lastSpawnZ = zPos;
+
+    tree.position.set(xPos, 0, zPos);
     scene.add(tree);
     trees.push(tree);
   }
 
-  let keys = {};
-  window.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+  // --- Jump Section Spawning ---
+  function spawnJumpSection() {
+    const jumpSection = new THREE.Group();
+    const rampWidth = trackWidth / 3;
+    const rampHeight = 1.5;
+    const rampLength = 8;
+    const gapLength = 8;
+    // Pit depth can be arbitrary now, as only the top surface will be seen
+    const pitDepth = 10; 
+
+    // Calculate the angle for the ramp
+    const rampAngle = Math.atan(rampHeight / rampLength);
+
+    // The ramp (bump)
+    const rampGeometry = new THREE.BoxGeometry(rampWidth, rampHeight, rampLength);
+    const rampMaterial = new THREE.MeshStandardMaterial({ color: 0xADD8E6, roughness: 0.5 });
+    const rampMesh = new THREE.Mesh(rampGeometry, rampMaterial);
+
+    rampMesh.rotation.x = rampAngle;
+    rampMesh.position.y = (rampHeight / 2) * Math.cos(rampAngle);
+    rampMesh.position.z = -rampLength / 2; // Front of the ramp is at Z=0 relative to the group
+
+    rampMesh.castShadow = true;
+    rampMesh.receiveShadow = true;
+    const xPos = (Math.random() - 0.5) * (trackWidth - rampWidth - 2);
+    rampMesh.position.x = xPos;
+    jumpSection.add(rampMesh);
+
+    // The visible pit surface - now explicitly black and slightly above snow
+    const pitGeometry = new THREE.BoxGeometry(trackWidth, pitDepth, gapLength);
+    // Set material to black
+    const pitMaterial = new THREE.MeshStandardMaterial({ color: 0x000000, roughness: 0.8 }); 
+    const pitMesh = new THREE.Mesh(pitGeometry, pitMaterial);
+    pitMesh.castShadow = true;
+    pitMesh.receiveShadow = true;
+
+    pitMesh.position.x = 0;
+    // Position the top of the pit mesh at y = 0.01
+    pitMesh.position.y = 0.01 - pitDepth / 2; 
+    pitMesh.position.z = -(rampLength + gapLength / 2); // Position immediately after the ramp
+
+    jumpSection.add(pitMesh);
+
+    // Removed pitFloorMesh as requested; the main pitMesh now serves the visual purpose.
+
+    // Set Z position for the entire jump section (where the front of the ramp is relative to the scene)
+    jumpSection.position.z = lastSpawnZ - (Math.random() * 30 + 40);
+    lastSpawnZ = jumpSection.position.z;
+
+    jumpSection.userData.type = 'jump';
+    jumpSection.userData.rampMesh = rampMesh;
+    jumpSection.userData.pitMesh = pitMesh; // This is the main body of the pit
+    jumpSection.userData.rampHeight = rampHeight;
+    jumpSection.userData.rampLength = rampLength;
+    jumpSection.userData.gapLength = gapLength;
+
+    scene.add(jumpSection);
+    jumpSections.push(jumpSection);
+  }
+
+  // --- Snowfall Particles ---
+  const snowfallParticles = new THREE.Group();
+  function createSnowflake() {
+    const flake = new THREE.Mesh(
+      new THREE.CircleGeometry(0.05, 5),
+      new THREE.MeshBasicMaterial({ color: 0xFFFFFF, transparent: true, opacity: 0.9 })
+    );
+    flake.position.set(
+      (Math.random() - 0.5) * (trackWidth + 10),
+      Math.random() * 20 + 10,
+      (Math.random() - 0.5) * 60
+    );
+    flake.userData.velocity = new THREE.Vector3(0, -0.05 - Math.random() * 0.05, 0);
+    snowfallParticles.add(flake);
+  }
+
+  // --- Input Handling ---
+  window.addEventListener("keydown", e => {
+    keys[e.key.toLowerCase()] = true;
+  });
   window.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
 
-  document.getElementById("resetBtn").addEventListener("click", () => location.reload());
+  window.addEventListener('touchstart', (e) => {
+    if (gameOver) return;
+    touchActive = true;
+    const touchX = e.touches[0].clientX;
+    if (touchX < window.innerWidth / 2) {
+      touchDirection = -1;
+    } else {
+      touchDirection = 1;
+    }
+  }, { passive: false });
 
+  window.addEventListener('touchend', (e) => {
+    if (e.touches.length === 0) {
+      touchActive = false;
+      touchDirection = 0;
+    } else {
+      const touchX = e.touches[0].clientX;
+      if (touchX < window.innerWidth / 2) {
+        touchDirection = -1;
+      } else {
+        touchDirection = 1;
+      }
+    }
+  }, { passive: false });
+
+  window.addEventListener('touchmove', (e) => {
+    if (gameOver) return;
+    if (touchActive && e.touches.length > 0) {
+      const touchX = e.touches[0].clientX;
+      if (touchX < window.innerWidth / 2) {
+        touchDirection = -1;
+      } else {
+        touchDirection = 1;
+      }
+    }
+  }, { passive: false });
+
+  resetBtn.addEventListener("click", () => location.reload());
+
+  window.addEventListener('resize', () => {
+    if (camera && renderer) {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+  });
+
+  // --- Animation Loop ---
   function animate() {
     requestAnimationFrame(animate);
-    if (gameOver) return;
 
-    if (keys['arrowleft']) sled.position.x -= 0.4;
-    if (keys['arrowright']) sled.position.x += 0.4;
+    if (gameOver) {
+      if (!gameOverScreen.classList.contains('active')) {
+        finalScoreEl.textContent = `CRASH! Final Score: ${score}`;
+        gameOverScreen.classList.add('active');
+      }
+      return;
+    }
 
+    // Player movement: Keyboard and Touch
+    let currentSledSpeed = sledSpeed * (1 + score / 5000);
+    let moveSpeed = 0.3 * (1 + score / 5000);
+    if (keys['arrowleft'] || keys['a'] || (touchActive && touchDirection === -1)) {
+      sled.position.x -= moveSpeed;
+    }
+    if (keys['arrowright'] || keys['d'] || (touchActive && touchDirection === 1)) {
+      sled.position.x += moveSpeed;
+    }
+
+    sled.position.x = Math.max(-trackWidth / 2 + 1.5, Math.min(trackWidth / 2 - 1.5, sled.position.x));
+
+    // Update sled's vertical position for jumps/gravity
+    if (isSledJumping) {
+        sled.position.y += sledVerticalVelocity;
+        sledVerticalVelocity -= JUMP_GRAVITY;
+
+        // Check if sled has landed on the ground after a jump
+        // Only reset isSledJumping if not currently over a gap
+        if (sled.position.y <= SLED_ON_GROUND_Y && !isOverGap) {
+            sled.position.y = SLED_ON_GROUND_Y;
+            sledVerticalVelocity = 0;
+            isSledJumping = false;
+        }
+    }
+
+
+    // Process all obstacles (trees and jump sections)
     trees.forEach(tree => {
-      tree.position.z += 0.5;
+      tree.position.z += currentSledSpeed;
 
-      // Check for collision
       let dx = tree.position.x - sled.position.x;
       let dz = tree.position.z - sled.position.z;
       if (Math.sqrt(dx * dx + dz * dz) < 2) {
         gameOver = true;
-        scoreEl.textContent = `💥 CRASH! Final Score: ${score}`;
+        cameraShakeMagnitude = 0.5;
       }
     });
 
-    trees = trees.filter(tree => tree.position.z < 20);
+    // Reset isOverGap at the start of each frame before re-evaluation
+    isOverGap = false;
 
-    if (Math.random() < 0.05) spawnTree();
+    jumpSections.forEach(section => {
+        section.position.z += currentSledSpeed;
+        const rampMesh = section.userData.rampMesh;
+        const pitMesh = section.userData.pitMesh; // This is the main body of the pit
 
+        // Calculate world Z positions for ramp and pit
+        const rampWorldStartZ = section.position.z + rampMesh.position.z + section.userData.rampLength / 2;
+        const rampWorldEndZ = section.position.z + rampMesh.position.z - section.userData.rampLength / 2;
+
+        const pitWorldStartZ = section.position.z + pitMesh.position.z + section.userData.gapLength / 2;
+        const pitWorldEndZ = section.position.z + pitMesh.position.z - section.userData.gapLength / 2;
+
+        // --- Collision with Ramp (to initiate jump) ---
+        // Sled is on the ramp if its Z is between rampWorldEndZ (back) and rampWorldStartZ (front)
+        // AND its X position overlaps the ramp's X position.
+        if (sled.position.z < rampWorldStartZ && sled.position.z > rampWorldEndZ) {
+            if (Math.abs(sled.position.x - (section.position.x + rampMesh.position.x)) < (rampMesh.geometry.parameters.width / 2 + 0.5)) {
+                if (!isSledJumping) { // Only start a new jump if not already jumping
+                    sledVerticalVelocity = 0.5; // Initial jump velocity
+                    isSledJumping = true;
+                }
+            }
+        }
+
+        // --- Collision with Pit (to check for fall) ---
+        // Sled is over the pit if its Z is between pitWorldEndZ (back) and pitWorldStartZ (front)
+        // AND its X position overlaps the pit's X position (which is trackWidth here).
+        if (sled.position.z < pitWorldStartZ && sled.position.z > pitWorldEndZ) {
+            // Check if sled is within the X bounds of the pit
+            if (Math.abs(sled.position.x) < (trackWidth / 2 + 0.5)) { // Pit covers full trackWidth
+                isOverGap = true; // Sled is currently over a gap
+
+                // If sled is too low while over the gap, it's game over
+                if (sled.position.y < JUMP_HEIGHT_THRESHOLD) {
+                    gameOver = true;
+                    cameraShakeMagnitude = 0.5;
+                }
+            }
+        }
+    });
+
+    // Remove passed obstacles
+    trees = trees.filter(obj => {
+      if (obj.position.z > 10) {
+        scene.remove(obj);
+        return false;
+      }
+      return true;
+    });
+
+    jumpSections = jumpSections.filter(obj => {
+      if (obj.position.z > 10) {
+        scene.remove(obj);
+        return false;
+      }
+      return true;
+    });
+
+    // Randomly spawn new obstacles (trees or jumps)
+    if (Math.random() < (treeSpawnRate + score / 20000)) {
+        if (Math.random() < 0.15) {
+            spawnJumpSection();
+        } else {
+            spawnTree();
+        }
+    }
+
+    // Snowfall update
+    if (Math.random() < 0.8) createSnowflake();
+    snowfallParticles.children.forEach(flake => {
+      flake.position.add(flake.userData.velocity);
+      if (flake.position.y < -5) {
+        flake.position.y = Math.random() * 20 + 10;
+        flake.position.x = (Math.random() - 0.5) * (trackWidth + 10);
+        flake.position.z = (Math.random() - 0.5) * 60;
+      }
+    });
+
+    // Score update
     score++;
-    if (!gameOver) scoreEl.textContent = "Score: " + score;
+    scoreEl.textContent = "Score: " + score;
+
+    // Camera shake
+    if (cameraShakeMagnitude > 0.01) {
+        camera.position.x += (Math.random() - 0.5) * cameraShakeMagnitude * 0.5;
+        camera.position.y += (Math.random() - 0.5) * cameraShakeMagnitude * 0.5;
+        cameraShakeMagnitude *= cameraShakeDecay;
+    } else {
+        cameraShakeMagnitude = 0;
+    }
 
     renderer.render(scene, camera);
   }
 
+  init();
   animate();
 </script>
 </body>
