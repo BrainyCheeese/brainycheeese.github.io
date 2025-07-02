@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BrowserGotchi 🐣</title>
+  <style>
+    body {
+      font-family: 'Courier New', monospace;
+      text-align: center;
+      background: #fffcf5;
+      color: #444;
+    }
+    #pet {
+      font-size: 4rem;
+      margin: 20px;
+      transition: transform 0.3s;
+    }
+    #stats {
+      margin: 10px;
+    }
+    button {
+      padding: 10px;
+      margin: 5px;
+    }
+    #nameInput {
+      margin-top: 10px;
+      font-size: 1.2rem;
+      padding: 5px;
+      width: 200px;
+    }
+    .death-animation {
+      animation: shake 0.5s infinite;
+      color: red;
+    }
+    @keyframes shake {
+      0% { transform: rotate(0deg); }
+      25% { transform: rotate(3deg); }
+      50% { transform: rotate(0deg); }
+      75% { transform: rotate(-3deg); }
+      100% { transform: rotate(0deg); }
+    }
+    #nameSection {
+      margin-top: 30px;
+    }
+    #gameUI {
+      display: none;
+    }
+    #countdown, #minigame {
+      margin-top: 15px;
+      font-weight: bold;
+      font-size: 1.1rem;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🐾 BrowserGotchi 🐾</h1>
+
+  <!-- Name input section -->
+  <div id="nameSection">
+    <p>What would you like your pet to be named? (b^w^)b</p>
+    <input id="nameInput" type="text" placeholder="Enter pet name" />
+    <br />
+    <button onclick="submitName()">Name your pet!</button>
+  </div>
+
+  <!-- Main game UI -->
+  <div id="gameUI">
+    <div id="pet">(´• ω •`) 🍼</div>
+    <div id="stats"></div>
+
+    <button onclick="feed()">🍔 Feed</button>
+    <button onclick="play()">🎮 Play</button>
+    <button onclick="rest()">🛌 Rest</button>
+    <button onclick="restart()">🔄 Restart</button>
+
+    <div id="countdown"></div>
+    <div id="minigame"></div>
+  </div>
+
+<script>
+  let state = null;
+  let decayInterval = null;
+  let minigameTimeout = null;
+  let countdownTimer = null;
+
+  // Load state from localStorage, returns true if found
+  function loadState() {
+    const saved = localStorage.getItem("gotchi");
+    if (saved) {
+      state = JSON.parse(saved);
+      return true;
+    }
+    return false;
+  }
+
+  function saveState() {
+    if (state) {
+      localStorage.setItem("gotchi", JSON.stringify(state));
+    }
+  }
+
+  function updateUI() {
+    const petElem = document.getElementById("pet");
+    const statsElem = document.getElementById("stats");
+
+    if (!state.alive) {
+      petElem.innerText = "(✖╭╮✖)";
+      petElem.classList.add("death-animation");
+    } else if (state.health < 30 || state.hunger < 30 || state.energy < 30) {
+      petElem.innerText = "(×_×)";
+      petElem.classList.remove("death-animation");
+    } else if (state.energy > 80 && state.health > 80) {
+      petElem.innerText = "(＾◡＾)っ";
+      petElem.classList.remove("death-animation");
+    } else {
+      petElem.innerText = "（＾・ω・＾）";
+      petElem.classList.remove("death-animation");
+    }
+
+    statsElem.innerText = `Name: ${state.name || "(name me!)"} | Hunger: ${state.hunger.toFixed(0)} | Health: ${state.health.toFixed(0)} | Energy: ${state.energy.toFixed(0)}`;
+  }
+
+  function decay() {
+    if (!state.alive) return;
+    state.hunger -= 1;
+    state.health -= 0.5;
+    state.energy -= 0.5;
+
+    if (state.hunger <= 0 || state.health <= 0 || state.energy <= 0) {
+      state.alive = false;
+      clearInterval(decayInterval);
+      clearTimeout(minigameTimeout);
+      clearInterval(countdownTimer);
+    }
+
+    updateUI();
+    saveState();
+  }
+
+  function feed() {
+    if (!state.alive) return;
+    state.hunger = Math.min(100, state.hunger + 15);
+    state.energy = Math.max(0, state.energy - 5);
+    updateUI();
+    saveState();
+  }
+
+  function play() {
+    if (!state.alive) return;
+    state.health = Math.min(100, state.health + 5);
+    state.energy = Math.max(0, state.energy - 10);
+    updateUI();
+    saveState();
+  }
+
+  function rest() {
+    if (!state.alive) return;
+    state.energy = Math.min(100, state.energy + 20);
+    updateUI();
+    saveState();
+  }
+
+  function restart() {
+    if (!confirm("⚠️ Are you sure you want to restart and lose your current tamagotchi?")) {
+      return; // Cancel restart if no confirmation
+    }
+    state = {
+      name: "",
+      hunger: 100,
+      health: 100,
+      energy: 100,
+      alive: true
+    };
+    localStorage.removeItem("gotchi");
+    clearInterval(decayInterval);
+    clearTimeout(minigameTimeout);
+    clearInterval(countdownTimer);
+    document.getElementById("nameSection").style.display = "block";
+    document.getElementById("gameUI").style.display = "none";
+    document.getElementById("nameInput").value = "";
+    document.getElementById("countdown").innerText = "";
+    document.getElementById("minigame").innerText = "";
+    updateUI();
+  }
+
+  function submitName() {
+    const input = document.getElementById("nameInput");
+    const newName = input.value.trim();
+    if (newName === "") {
+      alert("Please enter a valid name for your pet!");
+      return;
+    }
+    state.name = newName;
+    saveState();
+    document.getElementById("nameSection").style.display = "none";
+    document.getElementById("gameUI").style.display = "block";
+    updateUI();
+    startTimers();
+  }
+
+  // Mini-games array: functions that update state & return a result string
+  const miniGames = [
+    () => { state.hunger = Math.max(0, state.hunger - 15); return "You skipped meals playing. 🍽️ -15 Hunger!"; },
+    () => { state.health = Math.min(100, state.health + 5); state.energy = Math.min(100, state.energy + 5); return "You did yoga! 🧘 +5 Health & Energy!"; },
+    () => { state.hunger = Math.max(0, state.hunger - 10); return "Oops! You spilled your snack. 🍪 -10 Hunger!"; },
+    () => { state.energy = Math.min(100, state.energy + 15); return "You ran around the block! 🏃 +15 Energy!"; },
+    () => { state.health = Math.min(100, state.health + 15); return "You healed from a small cut. 🩹 +15 Health!"; },
+    () => { state.hunger = Math.min(100, state.hunger + 5); return "You enjoyed a tasty fruit! 🍎 +5 Hunger!"; },
+    () => { state.energy = Math.max(0, state.energy - 10); return "You pulled an all-nighter. 🦉 -10 Energy!"; },
+    () => { state.health = Math.max(0, state.health - 5); return "You caught a cold! 🤧 -5 Health!"; },
+    () => { state.hunger = Math.min(100, state.hunger + 8); return "You snuck an extra snack. 🍫 +8 Hunger!"; },
+    () => { state.energy = Math.min(100, state.energy + 10); return "You danced like crazy! 💃 +10 Energy!"; }
+  ];
+
+  function startTimers() {
+    decayInterval = setInterval(decay, 5000);
+    scheduleNextMinigame();
+  }
+
+  function scheduleNextMinigame() {
+    if (!state.alive) return;
+    const delay = 12000 + Math.random() * 18000; // 12-30 seconds
+    minigameTimeout = setTimeout(startMinigame, delay);
+  }
+
+  function startMinigame() {
+    if (!state.alive) return;
+
+    let countdown = 10;
+    const minigameDiv = document.getElementById("minigame");
+    const countdownDiv = document.getElementById("countdown");
+
+    minigameDiv.innerText = "⚡ Mini-game! Get ready... ⚡";
+    countdownDiv.innerText = `⏳ ${countdown} seconds`;
+
+    countdownTimer = setInterval(() => {
+      countdown--;
+      countdownDiv.innerText = `⏳ ${countdown} seconds`;
+      if (countdown <= 0) {
+        clearInterval(countdownTimer);
+        const resultIndex = Math.floor(Math.random() * miniGames.length);
+        const resultText = miniGames[resultIndex]();
+        minigameDiv.innerText = `🎉 Mini-game over! ${resultText}`;
+        countdownDiv.innerText = "";
+        updateUI();
+        saveState();
+        scheduleNextMinigame();
+      }
+    }, 1000);
+  }
+
+  // Initialize on page load
+  window.onload = function() {
+    const gotchiExists = loadState();
+    if (!gotchiExists) {
+      restart();
+    } else {
+      document.getElementById("nameSection").style.display = "none";
+      document.getElementById("gameUI").style.display = "block";
+      updateUI();
+      startTimers();
+    }
+  };
+</script>
+
+</body>
+</html>
