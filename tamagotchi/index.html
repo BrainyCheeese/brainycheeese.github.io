@@ -84,6 +84,7 @@
   let decayInterval = null;
   let minigameTimeout = null;
   let countdownTimer = null;
+  let timeAliveInterval = null;
 
   // Load state from localStorage, returns true if found
   function loadState() {
@@ -119,7 +120,7 @@
       petElem.classList.remove("death-animation");
     }
 
-    statsElem.innerText = `Name: ${state.name || "(name me!)"} | Hunger: ${state.hunger.toFixed(0)} | Health: ${state.health.toFixed(0)} | Energy: ${state.energy.toFixed(0)}`;
+    statsElem.innerText = `Name: ${state.name || "(name me!)"} | Hunger: ${state.hunger.toFixed(0)} | Health: ${state.health.toFixed(0)} | Energy: ${state.energy.toFixed(0)} | Time Alive: ${state.timeAlive || 0}s`;
   }
 
   function decay() {
@@ -133,6 +134,7 @@
       clearInterval(decayInterval);
       clearTimeout(minigameTimeout);
       clearInterval(countdownTimer);
+      clearInterval(timeAliveInterval);
     }
 
     updateUI();
@@ -171,12 +173,14 @@
       hunger: 100,
       health: 100,
       energy: 100,
-      alive: true
+      alive: true,
+      timeAlive: 0
     };
     localStorage.removeItem("gotchi");
     clearInterval(decayInterval);
     clearTimeout(minigameTimeout);
     clearInterval(countdownTimer);
+    clearInterval(timeAliveInterval);
     document.getElementById("nameSection").style.display = "block";
     document.getElementById("gameUI").style.display = "none";
     document.getElementById("nameInput").value = "";
@@ -216,6 +220,13 @@
 
   function startTimers() {
     decayInterval = setInterval(decay, 5000);
+    timeAliveInterval = setInterval(() => {
+      if (state.alive) {
+        state.timeAlive = (state.timeAlive || 0) + 1;
+        updateUI();
+        saveState();
+      }
+    }, 1000);
     scheduleNextMinigame();
   }
 
