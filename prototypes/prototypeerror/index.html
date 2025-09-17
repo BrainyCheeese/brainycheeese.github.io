@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>PROTOTYPE ERROR — Demo</title>
+  <style>
+    html,body{height:100%;margin:0;background:#0b0f1a;color:#e6eef8;font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    #gameWrap{display:flex;flex-direction:column;align-items:center;padding:14px}
+    canvas{background:linear-gradient(180deg,#10131a 0%, #0b1220 100%);border-radius:8px;box-shadow:0 8px 24px rgba(2,6,23,0.7)}
+    header{width:100%;max-width:920px;display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+    h1{font-size:18px;margin:0}
+    .hud{display:flex;gap:12px;align-items:center}
+    .pill{background:rgba(255,255,255,0.04);padding:8px 10px;border-radius:8px;font-size:14px}
+    .controls{max-width:920px;margin-top:10px;font-size:13px;color:#bcd2ff;opacity:0.9}
+    footer{margin-top:10px;color:#8ea7ff;font-size:13px}
+    .small{font-size:12px;color:#9fb0d4}
+  </style>
+</head>
+<body>
+  <div id="gameWrap">
+    <header>
+      <h1>PROTOTYPE ERROR — <span class="small">A Game Prototype</span></h1>
+      <div class="hud">
+        <div id="phase" class="pill">Phase: PREP</div>
+        <div id="timer" class="pill">30</div>
+        <div id="room" class="pill">Room: 1</div>
+        <div id="score" class="pill">Score: 0</div>
+        <div id="best" class="pill">High: 0</div>
+      </div>
+    </header>
+
+    <canvas id="c" width="900" height="600"></canvas>
+
+    <div class="controls">
+      Controls — WASD / Arrow keys to move. Z = place zipline (click to set anchor, then Z to dash). SPACE = bounce block (2.5s speed boost).
+      During PREP (30s) click to place mines (max 3) and ziplines (max 2). Survive for 60s. Rooms get tougher (more enemies, smaller play area).
+    </div>
+
+    <footer>
+      Built quick: code runs in this single HTML file. High score uses localStorage. Have fun (and run).
+    </footer>
+  </div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W = canvas.width, H = canvas.height;
+
+// UI Elements
+const phaseEl = document.getElementById('phase');
+const timerEl = document.getElementById('timer');
+const roomEl = document.getElementById('room');
+const scoreEl = document.getElementById('score');
+const bestEl = document.getElementById('best');
+
+// Game state
+let room = 1;
+let best = parseInt(localStorage.getItem('pe_high')||'0');
+bestEl.textContent = 'High: ' + best;
+
+let phase = 'PREP';
+let prepTime = 30;
+let surviveTime = 60;
+let phaseTimer = prepTime;
+let lastTs = 0;
+let score = 0;
+
+// Play area shrink per room
+const baseMargin = 20;
+function currentMargin(){ return Math.min(180, baseMargin + (room-1)*8); }
+
+// Player
+const player = {
+  x: W/2, y: H/2,
+  r: 12,
+  speed: 160,
+  vx:0, vy:0,
+  speedMul:1,
+  bounceActive:false,
+  bounceTimer:0,
+  zipReady:true,
+  zipCooldown:0,
+  zipActive:false,
+  zipTimer:0,
+  color:'#7efc87'
+}
+
+let mines = [];
+const maxMines = 3;
+let enemies = [];
+let ziplines = [];
+const maxZiplines = 2;
+
+function spawnEnemiesForRoom(){
+  enemies = [];
+  const base = 3;
+  const count = base + Math.floor(room * 1.5);
+  for(let i=0;i<count;i++){
+    const m = currentMargin();
+    let ex,ey;
+    const side = Math.floor(Math.random()*4);
+    if(side===0){ ex = m + Math.random()*(W-2*m); ey = m-8; }
+    if(side===1){ ex = m + Math.random()*(W-2*m); ey = H-m+8; }
+    if(side===2){ ex = m-8; ey = m + Math.random()*(H-2*m); }
+    if(side===3){ ex = W-m+8; ey = m + Math.random()*(H-2*m); }
+    enemies.push({x:ex,y:ey,r:10+Math.random()*6,spd:50 + room*10,hit:false});
+  }
+}
+
+const keys = {};
+window.addEventListener('keydown',e=>{ keys[e.key.toLowerCase()] = true; if(e.key===' '){ e.preventDefault(); } });
+window.addEventListener('keyup',e=>{ keys[e.key.toLowerCase()] = false; });
+
+canvas.addEventListener('click',e=>{
+  if(phase!=='PREP') return;
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
+  const m = currentMargin();
+  if(mx<m || mx>W-m || my<m || my>H-m) return;
+  if(keys['z']){
+    if(ziplines.length<maxZiplines){ ziplines.push({x:mx,y:my}); }
+  } else {
+    if(mines.length<maxMines){ mines.push({x:mx,y:my,r:10,armed:true}); }
+  }
+});
+
+function resetForRoom(){
+  player.x = W/2; player.y = H/2; player.vx=0;player.vy=0; player.speedMul=1; player.bounceActive=false; player.bounceTimer=0; player.zipReady=true; player.zipCooldown=0; player.zipActive=false; player.zipTimer=0;
+  mines = [];
+  ziplines = [];
+  spawnEnemiesForRoom();
+}
+
+resetForRoom();
+
+function update(dt){
+  if(phase==='GAMEOVER') return;
+  if(player.bounceActive){ player.bounceTimer -= dt; if(player.bounceTimer<=0){ player.bounceActive=false; player.speedMul=1; } }
+  if(!player.zipReady){ player.zipCooldown -= dt; if(player.zipCooldown<=0){ player.zipReady=true; player.zipCooldown=0; } }
+  if(player.zipActive){ player.zipTimer -= dt; if(player.zipTimer<=0){ player.zipActive=false; } }
+
+  phaseTimer -= dt;
+  if(phaseTimer<=0){
+    if(phase==='PREP'){
+      phase='SURVIVE'; phaseTimer = surviveTime; phaseEl.textContent='Phase: SURVIVE';
+      spawnEnemiesForRoom();
+    } else if(phase==='SURVIVE'){
+      score += Math.max(1, Math.floor((surviveTime)* (1 + room*0.2)));
+      room++; roomEl.textContent = 'Room: ' + room;
+      phase='PREP'; phaseTimer = prepTime; phaseEl.textContent='Phase: PREP';
+      resetForRoom();
+    }
+  }
+
+  let mx = 0, my = 0;
+  if(keys['w']||keys['arrowup']) my -= 1;
+  if(keys['s']||keys['arrowdown']) my += 1;
+  if(keys['a']||keys['arrowleft']) mx -= 1;
+  if(keys['d']||keys['arrowright']) mx += 1;
+  const mag = Math.hypot(mx,my) || 1;
+  const spd = player.speed * player.speedMul;
+  player.vx = (mx/mag) * spd;
+  player.vy = (my/mag) * spd;
+
+  if(keys[' '] && !player.bounceActive){
+    player.bounceActive = true; player.speedMul = 2.5; player.bounceTimer = 2.5;
+  }
+
+  if(keys['z'] && player.zipReady && !player.zipActive && ziplines.length>0){
+    let nearest = ziplines[0];
+    let nd = dist(player.x,player.y,nearest.x,nearest.y);
+    for(const zl of ziplines){
+      const d = dist(player.x,player.y,zl.x,zl.y);
+      if(d<nd){ nd=d; nearest=zl; }
+    }
+    player.zipActive = true; player.zipTimer = 0.35; player.zipReady = false; player.zipCooldown = 2.0;
+    const dx = nearest.x - player.x; const dy = nearest.y - player.y; const mlen = Math.hypot(dx,dy)||1;
+    player.vx = (dx/mlen) * (spd * 5);
+    player.vy = (dy/mlen) * (spd * 5);
+  }
+
+  player.x += player.vx * dt;
+  player.y += player.vy * dt;
+
+  const m = currentMargin();
+  const minX = m + player.r, maxX = W - m - player.r;
+  const minY = m + player.r, maxY = H - m - player.r;
+  player.x = Math.max(minX, Math.min(maxX, player.x));
+  player.y = Math.max(minY, Math.min(maxY, player.y));
+
+  for(const en of enemies){
+    const dx = player.x - en.x, dy = player.y - en.y;
+    const d = Math.hypot(dx,dy) || 1;
+    const nx = dx/d, ny = dy/d;
+    const speed = en.spd * (1 + Math.min(0.6, room*0.03));
+    en.x += nx * speed * dt;
+    en.y += ny * speed * dt;
+    for(const mi of mines){
+      if(mi.armed && dist(en.x,en.y,mi.x,mi.y) < en.r + mi.r + 6){
+        en.hit = true;
+        mi.armed = false;
+        score += 5;
+      }
+    }
+  }
+  enemies = enemies.filter(e=>!e.hit);
+
+  for(const en of enemies){
+    if(dist(en.x,en.y,player.x,player.y) < en.r + player.r - 2){
+      phase = 'GAMEOVER'; phaseEl.textContent = 'Phase: GAMEOVER';
+      if(room-1 > best){ best = room-1; localStorage.setItem('pe_high', String(best)); bestEl.textContent = 'High: '+best; }
+    }
+  }
+
+  timerEl.textContent = Math.ceil(phaseTimer);
+  scoreEl.textContent = 'Score: ' + score;
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  const m = currentMargin();
+  ctx.save();
+  ctx.strokeStyle = 'rgba(140,170,255,0.12)'; ctx.lineWidth = 2; ctx.setLineDash([6,6]);
+  ctx.strokeRect(m, m, W-2*m, H-2*m);
+  ctx.restore();
+
+  for(const zl of ziplines){
+    ctx.beginPath(); ctx.fillStyle = '#6fd3ff'; ctx.arc(zl.x,zl.y,6,0,Math.PI*2); ctx.fill();
+  }
+
+  for(const mi of mines){
+    ctx.beginPath(); ctx.fillStyle = mi.armed ? '#ffcf6f' : '#666'; ctx.arc(mi.x,mi.y,mi.r,0,Math.PI*2); ctx.fill();
+    if(mi.armed){ ctx.beginPath(); ctx.fillStyle='rgba(255,200,120,0.18)'; ctx.arc(mi.x,mi.y,mi.r+8,0,Math.PI*2); ctx.fill(); }
+  }
+
+  for(const en of enemies){
+    ctx.beginPath(); ctx.fillStyle = '#ff6b6b'; ctx.arc(en.x,en.y,en.r,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.fillStyle='#222'; ctx.arc(en.x - en.r*0.3, en.y - en.r*0.2, Math.max(1,en.r*0.18),0,Math.PI*2); ctx.fill();
+  }
+
+  ctx.beginPath();
+  ctx.fillStyle = player.color; ctx.arc(player.x,player.y,player.r,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.fillStyle = '#063'; ctx.arc(player.x - 4, player.y - 3, 2,0,Math.PI*2); ctx.fill();
+
+  if(player.zipActive && ziplines.length>0){
+    ctx.beginPath(); ctx.strokeStyle='rgba(110,211,255,0.9)'; ctx.lineWidth=3;
+    let nearest = ziplines[0];
+    let nd = dist(player.x,player.y,nearest.x,nearest.y);
+    for(const zl of ziplines){
+      const d = dist(player.x,player.y,zl.x,zl.y);
+      if(d<nd){ nd=d; nearest=zl; }
+    }
+    ctx.moveTo(player.x,player.y); ctx.lineTo(nearest.x,nearest.y); ctx.stroke();
+  }
+
+  ctx.fillStyle = '#cfe3ff'; ctx.font = '12px monospace'; ctx.fillText('Mines: '+mines.length+'/'+maxMines+' Ziplines: '+ziplines.length+'/'+maxZiplines, 12, H-12);
+
+  if(phase==='GAMEOVER'){
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = '#fff'; ctx.font='34px sans-serif'; ctx.textAlign='center'; ctx.fillText('GAME OVER', W/2, H/2 - 10);
+    ctx.font='16px sans-serif'; ctx.fillText('Press R to restart (room reached: '+(room-1)+')', W/2, H/2 + 26);
+    ctx.textAlign='start';
+  }
+}
+
+function dist(a,b,c,d){ const dx=a-c,dy=b-d; return Math.sqrt(dx*dx+dy*dy); }
+
+function loop(ts){
+  if(!lastTs) lastTs = ts;
+  const dt = Math.min(0.05, (ts - lastTs)/1000);
+  lastTs = ts;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+window.addEventListener('keydown',e=>{
+  if(e.key.toLowerCase()==='r' && phase==='GAMEOVER'){
+    room = 1; score = 0; phase='PREP'; phaseTimer = prepTime; phaseEl.textContent='Phase: PREP'; roomEl.textContent='Room: '+room; resetForRoom();
+  }
+});
+</script>
+</body>
+</html>

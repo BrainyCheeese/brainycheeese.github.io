@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RageJump — Break Your Keyboard (maybe)</title>
+<style>
+  :root{--bg:#0b1020;--fg:#e6f0ff;--accent:#ff6b6b}
+  html,body{height:100%;margin:0;background:linear-gradient(180deg,#071022,#0b1020);font-family:Inter,ui-sans-serif,system-ui,Arial;color:var(--fg)}
+  #ui{position:fixed;left:12px;top:12px;z-index:10}
+  .btn{background:#0f1724;border:1px solid rgba(255,255,255,.06);color:var(--fg);padding:6px 10px;margin-right:6px;border-radius:6px;cursor:pointer}
+  .btn.selected{box-shadow:0 6px 18px rgba(0,0,0,.6) inset, 0 0 0 3px rgba(255,255,255,.02)}
+  canvas{display:block;margin:0 auto;max-width:100%;height:80vh;border-radius:12px;box-shadow:0 24px 70px rgba(0,0,0,.6)}
+  #hud{position:fixed;right:12px;top:12px;text-align:right}
+  .small{opacity:.8;font-size:13px}
+  #message{position:fixed;left:50%;transform:translateX(-50%);bottom:28px;background:rgba(255,255,255,.03);padding:8px 12px;border-radius:8px}
+</style>
+</head>
+<body>
+<div id="ui">
+  <button class="btn" data-diff="easy">Easy</button>
+  <button class="btn selected" data-diff="medium">Medium</button>
+  <button class="btn" data-diff="hard">Hard</button>
+  <button class="btn" data-diff="hardcore">Hardcore</button>
+  <button class="btn" id="restart">Restart</button>
+  <div class="small" style="margin-top:6px">Controls: Space = jump, ←/→ = midair influence</div>
+</div>
+<div id="hud"><div class="small" id="attempts">Attempts: 0</div><div class="small" id="level">Level: 1</div></div>
+<canvas id="c" width="1200" height="720"></canvas>
+<div id="message">Goal: Reach the green flag. Infinite procedural levels of rage. 😈</div>
+<script>
+// RageJump — Infinite Procedural Levels!
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W = canvas.width, H = canvas.height;
+
+// --- Settings & difficulty ---
+let difficulty = 'medium';
+const uiBtns = document.querySelectorAll('#ui .btn[data-diff]');
+uiBtns.forEach(b=>b.addEventListener('click', ()=>{uiBtns.forEach(x=>x.classList.remove('selected'));b.classList.add('selected');difficulty=b.dataset.diff;setupDifficulty();restart();}))
+
+document.getElementById('restart').addEventListener('click', ()=>restart());
+
+let attempts = 0; function showAttempts(){document.getElementById('attempts').innerText = 'Attempts: '+attempts}
+let levelNum = 1; function showLevel(){document.getElementById('level').innerText = 'Level: '+levelNum}
+
+let config = { checkpoints:true, checkpointDensity:0.25, slippery:false };
+function setupDifficulty(){
+  if(difficulty==='easy'){config.checkpoints=true; config.checkpointDensity=0.5; config.slippery=false}
+  if(difficulty==='medium'){config.checkpoints=true; config.checkpointDensity=0.25; config.slippery=false}
+  if(difficulty==='hard'){config.checkpoints=false; config.checkpointDensity=0; config.slippery=false}
+  if(difficulty==='hardcore'){config.checkpoints=false; config.checkpointDensity=0; config.slippery=true}
+}
+setupDifficulty();
+
+// --- World definition ---
+const playerStart = {x:100,y:560};
+let player, platforms, spikes, checkpoints, flag;
+
+function generateLevel(num){
+  let plats = [{x:0,y:640,w:1200,h:80,type:'ground'}];
+  let sps = [];
+  
+  // difficulty scaling
+  let gapX = 180 + num*4; // horizontal distance increases with level
+  let gapY = 80 + Math.min(200, num*3); // vertical step
+  let platW = Math.max(80, 220 - num*2);
+  let numSteps = 12 + Math.floor(num/3);
+  
+  let dir = 1; // alternate horizontal vs vertical climb
+  let cx = 150, cy = 560;
+  for(let i=0;i<numSteps;i++){
+    plats.push({x:cx,y:cy,w:platW,h:18,type:(Math.random()<0.1?'slippery':undefined)});
+    // maybe add spikes on top later levels
+    if(num>5 && Math.random()<0.25){
+      sps.push({x:cx,y:cy-16,w:platW,h:16});
+    }
+    // alternate climb style
+    if(dir===1){ cx += gapX; cy -= gapY*0.5; } else { cy -= gapY; }
+    dir*=-1;
+  }
+  let flg = {x:cx+80,y:cy-40,w:20,h:40};
+  return {plats:plats,spikes:sps,flag:flg};
+}
+
+function makeLevel(){
+  const lvl = generateLevel(levelNum);
+  platforms = lvl.plats;
+  spikes = lvl.spikes;
+  flag = lvl.flag;
+  checkpoints = [];
+  if(config.checkpoints){
+    for(let p of platforms){ if(Math.random()<config.checkpointDensity){ checkpoints.push({x:p.x+p.w/2,y:p.y,hit:false}); } }
+  }
+}
+
+function resetPlayer(){
+  player = {
+    x: playerStart.x, y: playerStart.y,
+    vx:0, vy:0,
+    w:32,h:48,
+    onGround:false, canDouble:true, facing:1,
+    wallTouchDir:0
+  };
+}
+
+function restart(){ attempts++; showAttempts(); makeLevel(); resetPlayer(); camera.x=0; camera.y=0; lastCheckpoint=null; showLevel(); }
+
+let lastCheckpoint = null;
+
+// --- Camera ---
+const camera = {x:0,y:0};
+
+// --- Input ---
+const keys = {};
+window.addEventListener('keydown', e=>{keys[e.code]=true; if(e.code==='Space') e.preventDefault(); });
+window.addEventListener('keyup', e=>{keys[e.code]=false});
+
+// --- Physics params ---
+const GRAV = 1500; // px/s^2
+const JUMP_V = -520;
+const DOUBLE_JUMP_V = -460;
+const WALL_JUMP_VX = 380; const WALL_JUMP_VY = -420;
+const AIR_CONTROL = 18;
+const AIR_BOOST = 220;
+const MAX_SPEED = 700;
+const FRICTION = 22;
+
+// --- Game loop ---
+let last = performance.now();
+function loop(t){
+  const dt = Math.min((t-last)/1000,0.033);
+  last = t;
+  update(dt); draw();
+  requestAnimationFrame(loop);
+}
+
+function rectInter(r1,r2){ return !(r1.x+r1.w < r2.x || r1.x > r2.x+r2.w || r1.y+r1.h < r2.y || r1.y > r2.y+r2.h); }
+
+function update(dt){
+  const wantJump = keys['Space'];
+  if(!player._lastJump && wantJump) handleJump();
+  player._lastJump = wantJump;
+
+  let horiz = 0;
+  if(!player.onGround){ if(keys['ArrowLeft']) horiz -= 1; if(keys['ArrowRight']) horiz += 1; }
+  player.vx += horiz * AIR_CONTROL * dt;
+  if(player.vx > MAX_SPEED) player.vx = MAX_SPEED; if(player.vx < -MAX_SPEED) player.vx = -MAX_SPEED;
+
+  player.vy += GRAV * dt;
+  player.x += player.vx * dt;
+  player.y += player.vy * dt;
+
+  player.onGround = false; player.wallTouchDir = 0;
+  for(const p of platforms){
+    const plat = {x:p.x,y:p.y,w:p.w,h:p.h};
+    if(rectInter(player,plat)){
+      const prevY = player.y - player.vy*dt;
+      const prevX = player.x - player.vx*dt;
+      if(prevY + player.h <= plat.y){ player.y = plat.y - player.h; player.vy = 0; player.onGround = true; player.canDouble = true; }
+      else if(prevY >= plat.y + plat.h){ player.y = plat.y + plat.h; player.vy = 0; }
+      else if(prevX + player.w <= plat.x){ player.x = plat.x - player.w; player.vx = 0; player.wallTouchDir = -1; }
+      else if(prevX >= plat.x + plat.w){ player.x = plat.x + plat.w; player.vx = 0; player.wallTouchDir = 1; }
+    }
+  }
+
+  let onSlippery = false;
+  for(const p of platforms) if(p.type==='slippery' && player.x+player.w > p.x && player.x < p.x+p.w && Math.abs((player.y+player.h) - p.y) < 6) onSlippery = true;
+  if(config.slippery || onSlippery){ player.vx *= 0.9995; }
+  else { if(player.onGround) player.vx *= Math.max(0, 1 - FRICTION*dt); }
+
+  for(const s of spikes){ const sp = {x:s.x,y:s.y,w:s.w,h:s.h}; if(rectInter(player,sp)) die(); }
+
+  if(config.checkpoints){ for(const c of checkpoints){ const cr = {x:c.x-12,y:c.y-28,w:24,h:28}; if(rectInter(player,cr)){ c.hit=true; lastCheckpoint = {x:c.x,y:c.y}; } } }
+
+  if(rectInter(player,{x:flag.x,y:flag.y,w:flag.w,h:flag.h})){ nextLevel(); }
+
+  if(player.y > H + 200) die();
+
+  camera.x += ((player.x - camera.x) - W*0.35) * 5 * dt;
+  camera.y += ((player.y - camera.y) - H*0.45) * 5 * dt;
+}
+
+function handleJump(){
+  if(player.onGround){ player.vy = JUMP_V; player.canDouble = true; player.onGround = false; }
+  else if(player.wallTouchDir!==0){ const dir = player.wallTouchDir; player.vx = WALL_JUMP_VX * -dir; player.vy = WALL_JUMP_VY; player.canDouble = true; }
+  else if(player.canDouble){ player.vy = DOUBLE_JUMP_V; player.canDouble = false; if(keys['ArrowLeft']) player.vx -= AIR_BOOST; if(keys['ArrowRight']) player.vx += AIR_BOOST; }
+}
+
+function die(){
+  screenShake = 10;
+  if(config.checkpoints && lastCheckpoint){ player.x = lastCheckpoint.x; player.y = lastCheckpoint.y - player.h; player.vx=0; player.vy=0; }
+  else { resetPlayer(); }
+}
+
+function nextLevel(){
+  levelNum++;
+  makeLevel(); resetPlayer(); lastCheckpoint=null; showLevel();
+  document.getElementById('message').innerText = 'Level '+levelNum+' — keep going!';
+}
+
+let screenShake = 0;
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = '#071022'; ctx.fillRect(0,0,W,H);
+  if(screenShake>0) screenShake *= 0.85; else screenShake=0;
+  const sx = (Math.random()*2-1)*screenShake; const sy = (Math.random()*2-1)*screenShake;
+  ctx.save(); ctx.translate(-camera.x + sx + 80, -camera.y + sy + 40);
+
+  for(const p of platforms){ ctx.fillStyle = p.type==='slippery' ? '#1f2b44' : '#172034'; ctx.fillRect(p.x,p.y,p.w,p.h); ctx.strokeStyle='rgba(255,255,255,.04)'; ctx.strokeRect(p.x,p.y,p.w,p.h); }
+  for(const s of spikes){ for(let i=0;i<s.w;i+=16){ ctx.beginPath(); ctx.moveTo(s.x+i,s.y+s.h); ctx.lineTo(s.x+i+8,s.y); ctx.lineTo(s.x+i+16,s.y+s.h); ctx.fillStyle='#ff6b6b'; ctx.fill(); }}
+  if(config.checkpoints){ for(const c of checkpoints){ ctx.fillStyle = c.hit ? '#8be58b' : '#2e7d2e'; ctx.fillRect(c.x-12,c.y-28,24,28); ctx.fillStyle='rgba(255,255,255,.06)'; ctx.fillRect(c.x-12,c.y-8,24,6); }}
+  ctx.fillStyle = '#48c774'; ctx.fillRect(flag.x,flag.y,flag.w,flag.h);
+  ctx.fillStyle='#1b3b20'; ctx.fillRect(flag.x+flag.w-6,flag.y+6,6,flag.h-12);
+
+  ctx.save(); ctx.translate(player.x,player.y);
+  ctx.fillStyle = '#cfe8ff'; ctx.fillRect(0,0,player.w,player.h);
+  ctx.fillStyle = '#0b1020'; ctx.fillRect(6,10,6,6); ctx.fillRect(player.w-12,10,6,6);
+  ctx.restore();
+
+  ctx.restore();
+  ctx.fillStyle='rgba(0,0,0,0.15)'; ctx.fillRect(0,0,W,H);
+}
+
+makeLevel(); resetPlayer(); showAttempts(); showLevel(); requestAnimationFrame(loop);
+
+console.log('RageJump loaded. Difficulty:', difficulty);
+</script>
+</body>
+</html>

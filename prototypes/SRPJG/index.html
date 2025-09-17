@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Tiny Random Platformer</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--accent:#7dd3fc;--muted:#94a3b8}
+    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial}
+    body{display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#071126 0%,#0b1020 100%);color:var(--muted)}
+    .wrap{display:flex;flex-direction:column;gap:12px;align-items:center}
+    canvas{background:linear-gradient(180deg,#0b1220 0%,#071122 100%);border-radius:12px;box-shadow:0 10px 30px rgba(2,6,23,.7);image-rendering:pixelated}
+    .ui{width:800px;display:flex;justify-content:space-between;align-items:center}
+    .card{background:rgba(255,255,255,0.03);padding:10px 14px;border-radius:10px;font-size:14px;color:var(--muted)}
+    .hint{font-size:13px;color:var(--muted)}
+    .big{color:var(--accent);font-weight:700}
+    footer{margin-top:6px;text-align:center;color:rgba(148,163,184,.7);font-size:12px}
+    @media (max-width:840px){canvas{width:92vw;height:auto} .ui{width:92vw}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="ui">
+      <div class="card">Score: <span id="score">0</span></div>
+      <div class="card hint">Controls: ← → or A/D — Jump (double jump!): Space / ↑</div>
+      <div class="card">Don't fall. Be awesome.</div>
+    </div>
+    <canvas id="c" width="800" height="600"></canvas>
+    <footer>Refresh to generate new platforms — tiny, random, jumpy fun.</footer>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+
+    const player = {
+      x: 120, y: 0, w: 32, h: 48,
+      vx: 0, vy: 0,
+      speed: 3.5,
+      onGround: false,
+      jumps: 0,
+      maxJumps: 2,
+      jumpPressed: false,
+      parts: [
+        {xOff:0,yOff:0,w:20,h:30,color:'#fcd34d'},
+        {xOff:-8,yOff:-20,w:8,h:20,color:'#3b82f6'},
+        {xOff:20,yOff:-20,w:8,h:20,color:'#3b82f6'},
+        {xOff:0,yOff:30,w:8,h:20,color:'#ef4444'},
+        {xOff:12,yOff:30,w:8,h:20,color:'#ef4444'}
+      ]
+    };
+
+    const gravity = 0.8;
+    const jumpPower = -15;
+
+    let platforms = [];
+    const minGap = 60;
+    const maxGap = 120;
+
+    function rand(min, max){ return Math.random()*(max-min)+min }
+
+    function genPlatforms(){
+      platforms = [];
+      platforms.push({x: -50, y: H-40, w: W+100, h: 40});
+      let y = H-120;
+      while(y > -2000){
+        const w = Math.floor(rand(60, 160));
+        const x = Math.floor(rand(20, W - w - 20));
+        platforms.push({x, y, w, h: 12});
+        y -= Math.floor(rand(minGap, maxGap));
+      }
+    }
+
+    genPlatforms();
+
+    let camY = 0;
+
+    const keys = {};
+    addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if ([' ','arrowup','w'].includes(e.key.toLowerCase())) e.preventDefault(); });
+    addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+    let score = 0;
+    const scoreEl = document.getElementById('score');
+
+    function tryJump(){
+      if (!player.jumpPressed && player.jumps < player.maxJumps){
+        player.vy = jumpPower;
+        player.jumps++;
+        player.jumpPressed = true;
+      }
+    }
+
+    function update(){
+      if (keys['arrowleft'] || keys['a']) player.vx = -player.speed;
+      else if (keys['arrowright'] || keys['d']) player.vx = player.speed;
+      else player.vx = 0;
+      
+      player.x += player.vx;
+
+      if (keys[' '] || keys['arrowup'] || keys['w']){
+        tryJump();
+      } else {
+        player.jumpPressed = false;
+      }
+
+      player.vy += gravity;
+      player.y += player.vy;
+
+      player.onGround = false;
+      for (let p of platforms){
+        if (player.vy >= 0 && player.y + player.h >= p.y && player.y + player.h - player.vy <= p.y && (player.x + player.w) > p.x && player.x < p.x + p.w){
+          player.y = p.y - player.h;
+          player.vy = 0;
+          player.onGround = true;
+          player.jumps = 0;
+        }
+      }
+
+      const threshold = H * 0.35;
+      if (player.y - camY < threshold){
+        camY = player.y - threshold;
+      }
+
+      score = Math.max(score, Math.floor(-camY));
+      scoreEl.textContent = score;
+
+      if (player.y - camY > H + 200){
+        genPlatforms();
+        player.x = 120; player.y = H-200; player.vx = 0; player.vy = 0; camY = 0; score = 0; scoreEl.textContent = score; player.jumps = 0; player.jumpPressed = false;
+      }
+    }
+
+    function draw(){
+      ctx.clearRect(0,0,W,H);
+      ctx.save();
+      ctx.translate(0, -camY);
+
+      const grd = ctx.createLinearGradient(0, camY, 0, H+camY);
+      grd.addColorStop(0, '#071126');
+      grd.addColorStop(1, '#041018');
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, camY, W, H+400);
+
+      for (let p of platforms){
+        if (p.y < camY - 200 || p.y > camY + H + 200) continue;
+        ctx.fillStyle = '#073047';
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+        ctx.fillStyle = '#7dd3fc';
+        ctx.fillRect(p.x, p.y, p.w, 3);
+      }
+
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      for (let part of player.parts){
+        ctx.save();
+        let wiggle = Math.sin(Date.now()/200 + part.xOff) * 10;
+        ctx.translate(part.xOff, part.yOff);
+        ctx.rotate(wiggle * Math.PI/180);
+        ctx.fillStyle = part.color;
+        ctx.fillRect(0, 0, part.w, part.h);
+        ctx.restore();
+      }
+      ctx.restore();
+
+      ctx.restore();
+    }
+
+    function loop(){
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    canvas.addEventListener('pointerdown', () => {
+      if (player.jumps < player.maxJumps){
+        player.vy = jumpPower;
+        player.jumps++;
+      }
+    });
+
+    player.y = H - 200;
+
+    loop();
+  </script>
+</body>
+</html>
